@@ -2,10 +2,8 @@
 #include<netinet/in.h>
 #include<arpa/inet.h>
 
-#define USE_COMMON 1
-#if USE_COMMON
 #include "common.h"
-#endif
+
 
 #define MAXLINE 100
 
