@@ -22,7 +22,7 @@ int main(int argc, char **argv) {
     char greeting[100];
     strcpy(greeting, argv[1]);
 
-    unsigned listensock, clientsock;
+    int listensock, clientsock;
 
     listensock = socket(AF_INET, SOCK_STREAM, 0);
     if(listensock == -1) {
