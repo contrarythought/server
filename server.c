@@ -1,90 +1,90 @@
-#include<sys/socket.h>
-#include<netinet/in.h>
-#include<arpa/inet.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>
+#include <unistd.h>
+#include <sys/socket.h>
+#include <sys/types.h>
+#include <netinet/in.h>
+#include <netdb.h>
+#include <errno.h>
 
-#include "common.h"
-
-
-#define MAXLINE 100
-
-unsigned PORT;
-
-void usage(char *program, char *instr) {
-    fprintf(stderr, "%s %s\n", program, instr);
-    exit(EXIT_FAILURE);
-}
-
-int main(int argc, char **argv) {
+int main(int argc, char *argv[]) {
     if(argc != 2) {
-        usage(argv[0], "<greeting>");
+        printf("%s <port>\n", argv[0]);
+        return 1;
     }
 
-    char greeting[100];
-    strcpy(greeting, argv[1]);
+    char *port = strdup(argv[1]);
+    struct addrinfo hints;
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_STREAM;
+    hints.ai_flags = AI_PASSIVE; // this flag is used for addresses that servers can bind to
 
-    int listensock, clientsock;
+    struct addrinfo *bind_address;
+    getaddrinfo(NULL, port, &hints, &bind_address);
 
-    listensock = socket(AF_INET, SOCK_STREAM, 0);
-    if(listensock == -1) {
-        myerr("in socket creation");
+    int listen_sock = socket(bind_address->ai_family, bind_address->ai_socktype, bind_address->ai_protocol);
+    if(listen_sock == -1) {
+        printf("Failed to create socket: %d\n", errno);
+        return 1;
     }
 
-    int reuse = 1;
-    if(setsockopt(listensock, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(int)) == -1) {
-        myerr("In setting socket options");
+    if(bind(listen_sock, bind_address->ai_addr, bind_address->ai_addrlen) == -1) {
+        printf("Failed to bind: %d\n", errno);
+        return 1;
     }
-
-    printf("Port number:\n");
-    scanf("%d", &PORT);
-
-    struct sockaddr_in host_addr;
-    memset((struct sockaddr *) &host_addr, 0, sizeof(host_addr));
-    host_addr.sin_family = AF_INET;
-    host_addr.sin_port = htons(PORT);
-    host_addr.sin_addr.s_addr = htonl(INADDR_ANY);
-
-    if(bind(listensock, (struct sockaddr *) &host_addr, sizeof(host_addr)) < 0) {
-        myerr("In binding");
-    }
-
-    if(listen(listensock, 10) == -1) {
-        myerr("In listening");
-    }
-
-    struct sockaddr_in client_addr;
-    char buffer[MAXLINE];
-    memset(buffer, 0, sizeof(buffer));
     
-    while(1) {
-        socklen_t len = sizeof(struct sockaddr);
-        printf("Listening on port %d\n", PORT);
-
-        clientsock = accept(listensock, (struct sockaddr *) &client_addr, &len);
-        if(clientsock == -1) {
-            myerr("In accepting client connection");
-        }
-
-        send(clientsock, greeting, strlen(greeting), 0);
-        send(clientsock, "\n", 1, 0);
-        
-        int rec_len = recv(clientsock, buffer, sizeof(buffer), 0);
-        int quit = 0;
-        while(rec_len > 0) {
-            if(strncasecmp(buffer, "quit", strlen("quit")) == 0) {
-                quit = 1;
-                break;
-            }
-            printf("Received %d bytes from client\n", rec_len);
-            printf("%s", buffer);
-            send(clientsock, "ECHO: ", strlen("ECHO "), 0);
-            send(clientsock, buffer, sizeof(buffer),0);
-            memset(buffer, 0, sizeof(buffer));
-            rec_len = recv(clientsock, buffer, sizeof(buffer), 0);
-        }
-        if(quit)
-            break;
+    if(listen(listen_sock, 10) == -1) {
+        printf("Failed to to listen: %d\n", errno);
+        return 1;
     }
-    close(clientsock);
-    close(listensock);
+
+    printf("Waiting for connection...\n");
+    struct sockaddr_storage client_address;
+    socklen_t client_size = sizeof(client_address);
+    int client_sock = accept(listen_sock, (struct sockaddr *) &client_address, &client_size);
+    if(client_sock == -1) {
+        printf("Failed to accept client connection: %d\n", errno);
+        return 1;
+    }
+
+    printf("Client is connected...");
+    char address_buffer[33];
+    getnameinfo((struct sockaddr *) &client_address, client_size, address_buffer, sizeof(address_buffer), 0, 0, NI_NUMERICHOST);
+    printf("%s\n", address_buffer);
+
+    char recv_buf[1024];
+    int bytes_rec = recv(client_sock, recv_buf, sizeof(recv_buf), 0);
+    if(bytes_rec == -1) {
+        printf("Failed to receive request: %d\n", errno);
+        return 1;
+    }
+
+    printf("%.*s", bytes_rec, recv_buf);
+
+    printf("Sending response...\n");
+    char *response = 
+    "HTTP/1.1 200 OK\r\n"
+    "Connection: close\r\n"
+    "Content-Type: text/plain\r\n\r\n"
+    "Local time: ";
+    int bytes_send = send(client_sock, response, strlen(response), 0);
+    if(bytes_send == -1) {
+        printf("Failed to send: %d\n", errno);
+        return 1;
+    }
+
+    time_t timer;
+    time(&timer);
+    char *time_msg = ctime(&timer);
+    bytes_send = send(client_sock, time_msg, strlen(time_msg), 0);
+    if(bytes_send == -1) {
+        printf("Failed to send: %d\n", errno);
+        return -1;
+    }
+    close(listen_sock);
+    free(port);
     return 0;
 }
